@@ -14,5 +14,6 @@ let () =
     sslkeylog_path
     pcapng_path
     wait_seconds;
-  Relic_token_lib.Cli.run sslkeylog_path pcapng_path wait_seconds
+  let credentials = Relic_token_lib.Cli.run sslkeylog_path pcapng_path wait_seconds in
+  Printf.printf "%s %s" credentials.alias credentials.auth
 ;;

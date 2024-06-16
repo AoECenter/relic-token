@@ -83,6 +83,22 @@ let rec find_credentials_form sslkeylog_path pcapng_path =
   match result with Some s -> s | None -> find_credentials_form sslkeylog_path pcapng_path
 ;;
 
+let extract_credentials query =
+  let open Credentials in
+  let split_equal str =
+    match String.split_on_char '=' str with
+    | [ key; value ] -> key, value
+    | _ -> failwith "Invalid query string part"
+  in
+  let split_ampersand str = String.split_on_char '&' str in
+  let rec find_value key = function
+    | [] -> failwith ("Key " ^ key ^ " not found")
+    | (k, v) :: tail -> if k = key then v else find_value key tail
+  in
+  let parts = List.map split_equal (split_ampersand query) in
+  { alias = find_value "alias" parts; auth = find_value "auth" parts }
+;;
+
 let run sslkeylog_path pcapng_path wait_seconds =
   Io.ensure_file_exists sslkeylog_path;
   Io.ensure_file_exists pcapng_path;
@@ -95,5 +111,6 @@ let run sslkeylog_path pcapng_path wait_seconds =
   let cookie = find_credentials_form sslkeylog_path pcapng_path in
   Logger.Sync.info "Found cookie '%s'" cookie;
   Logger.Sync.info "Shutting down processes";
-  Process.terminate steam_pid
+  Process.terminate steam_pid;
+  extract_credentials cookie
 ;;
