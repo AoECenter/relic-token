@@ -84,6 +84,8 @@ let rec find_credentials_form sslkeylog_path pcapng_path =
 ;;
 
 let run sslkeylog_path pcapng_path wait_seconds =
+  Io.ensure_file_exists sslkeylog_path;
+  Io.ensure_file_exists pcapng_path;
   let steam_pid = wait_for_steam sslkeylog_path in
   Logger.Sync.info "Steam ready with pid=%d" steam_pid;
   let tshark_pid = launch_tshark_listener sslkeylog_path pcapng_path in
