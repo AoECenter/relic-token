@@ -1,0 +1,6 @@
+(include_subdirs qualified)
+
+(library
+ (name relic_token_lib)
+ (public_name relic-token)
+ (libraries unix))
