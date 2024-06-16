@@ -3,4 +3,4 @@
 (library
  (name relic_token_lib)
  (public_name relic-token)
- (libraries unix))
+ (libraries unix str))

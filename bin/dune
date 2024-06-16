@@ -3,4 +3,4 @@
  (public_name relic-token)
  (package relic-token)
  (modules main)
- (libraries str relic_token_lib))
+ (libraries relic_token_lib))
