@@ -1,9 +1,11 @@
 .PHONY: unit-test
 unit-test:
+	test -d tests/unit || exit 0
 	dune runtest tests/unit --root $$(pwd) --instrument-with bisect_ppx --force
 
 .PHONY: integration-test
 integration-test:
+	test -d tests/integration || exit 0
 	dune runtest tests/integration --root $$(pwd) --instrument-with bisect_ppx --force
 
 test:

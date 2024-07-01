@@ -1,7 +1,7 @@
 let log ?m ?f level fmt =
   let kprintf_logger str =
     let formatted_msg = Base.format_message ?m ?f level str in
-    Printf.printf "%s" formatted_msg;
+    Printf.eprintf "%s" formatted_msg;
     flush stdout
   in
   Printf.ksprintf kprintf_logger fmt

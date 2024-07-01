@@ -1,116 +1,123 @@
-let wait_for_steam sslkeylog_path =
-  Logger.Sync.info "Launching steam";
+let wait_for_steam steam_path _sslkeylog_path =
+  Logger.Sync.info ~m:"Cli" ~f:"wait_for_steam" "Launching steam";
   let read, write = Unix.pipe () in
   let pid =
     Unix.create_process_env
       "steam"
-      [| "steam"; "steam://rungameid/813780" |]
-      [| "SSLKEYLOGFILE=" ^ sslkeylog_path
-       ; "PATH=" ^ Sys.getenv "PATH"
-       ; "HOME=" ^ Sys.getenv "HOME"
-       ; "DISPLAY=" ^ Sys.getenv "DISPLAY"
-      |]
+      [| steam_path; "steam://rungameid/813780" |]
+      [| "PATH=" ^ Sys.getenv "PATH"; "HOME=" ^ Sys.getenv "HOME"; "DISPLAY=" ^ Sys.getenv "DISPLAY" |]
       write
       write
       write
   in
-  Logger.Sync.info "Steam process running with pid=%d" pid;
+  Logger.Sync.info ~m:"Cli" ~f:"wait_for_steam" "Steam process running with pid=%d" pid;
   let target = "setup.sh.* Steam runtime environment up-to-date!" in
   let result = Seeker.seek read target (Buffer.create 1024) in
-  Logger.Sync.debug "Closing steam write fd";
+  Logger.Sync.debug ~m:"Cli" ~f:"wait_for_steam" "Closing steam write fd";
   Unix.close write;
   Unix.close read;
   match result with
   | Found _ -> pid
   | NotFound _ ->
     Process.terminate pid;
-    Logger.Sync.error "Exhausted buffer and didn't find '%s'" target;
+    Logger.Sync.error ~m:"Cli" ~f:"wait_for_steam" "Exhausted buffer and didn't find '%s'" target;
     failwith ""
   | Error e ->
     Process.terminate pid;
-    Logger.Sync.error "Error while seeking buffer for '%s': %s" target e;
+    Logger.Sync.error ~m:"Cli" ~f:"wait_for_steam" "Error while seeking buffer for '%s': %s" target e;
     failwith ""
 ;;
 
-let launch_tshark_listener sslkeylog_path pcapng_path =
-  Logger.Sync.info "Launching tshark listener";
-  let pid =
-    Unix.create_process_env
-      "sudo"
-      [| "sudo"
-       ; "/nix/store/xxipvlrlwjyybisd0fhfs6ix90i55m9x-wireshark-cli-4.2.5/bin/tshark"
-       ; "-Q"
-       ; "-w"
-       ; pcapng_path
-      |]
-      [| "SSLKEYLOGFILE=" ^ sslkeylog_path |]
-      Unix.stdin
-      Unix.stdout
-      Unix.stderr
-  in
-  Logger.Sync.info "Tshark listener process running with pid=%d" pid;
-  pid
-;;
-
-let rec find_credentials_form sslkeylog_path pcapng_path =
-  Logger.Sync.info "Launching tshark parser";
+let launch_tshark_listener tshark_bin sslkeylog_path pcapng_path =
+  Logger.Sync.info ~m:"Cli" ~f:"launch_tshark_listener" "Launching tshark listener";
   let read, write = Unix.pipe () in
   let pid =
     Unix.create_process_env
       "sudo"
-      [| "sudo"
-       ; "/nix/store/xxipvlrlwjyybisd0fhfs6ix90i55m9x-wireshark-cli-4.2.5/bin/tshark"
-       ; "-r"
-       ; pcapng_path
-       ; "-Y"
-       ; "http.request.method == POST"
-       ; "-T"
-       ; "fields"
-       ; "-e"
-       ; "http.file_data"
-      |]
-      [| "SSLKEYLOGFILE=" ^ sslkeylog_path |]
+      [| "sudo"; tshark_bin; "-Q"; "-w"; pcapng_path; "-o"; "ssl.keylog_file:" ^ sslkeylog_path |]
+      [||]
       write
       write
       write
   in
-  Logger.Sync.debug "Closing steam";
+  Logger.Sync.info ~m:"Cli" ~f:"launch_tshark_listener" "Tshark listener process running with pid=%d" pid;
   Unix.close write;
   Unix.close read;
-  Logger.Sync.info "Tshark parser process running with pid=%d" pid;
-  let result = Io.extract_regex_from_pipe read "accountType=STEAM.*" in
-  Process.terminate pid;
-  match result with Some s -> s | None -> find_credentials_form sslkeylog_path pcapng_path
+  pid
 ;;
 
-let extract_credentials query =
+let extract_http_form_value key form =
+  let regexp = Str.regexp @@ "Form item: \"" ^ key ^ "\" = \"\\(.*\\)\"" in
+  try
+    let _ = Str.search_forward regexp form 0 in
+    (* Extract matching group and remove spaces *)
+    let match_str = Str.matched_group 1 form in
+    let no_spaces = Str.global_replace (Str.regexp " ") "" match_str in
+    Some no_spaces
+  with
+  | Not_found -> None
+;;
+
+let rec find_credentials_form tshark_bin sslkeylog_path pcapng_path =
   let open Credentials in
-  let split_equal str =
-    match String.split_on_char '=' str with
-    | [ key; value ] -> key, value
-    | _ -> failwith "Invalid query string part"
+  Logger.Sync.debug ~m:"Cli" ~f:"find_credentials_form" "Launching tshark parser";
+  let read, write = Unix.pipe () in
+  let pid =
+    Process.create
+      tshark_bin
+      [| "-r"; pcapng_path; "-V"; "-o"; "ssl.keylog_file:" ^ sslkeylog_path |]
+      write
+      write
+      write
   in
-  let split_ampersand str = String.split_on_char '&' str in
-  let rec find_value key = function
-    | [] -> failwith ("Key " ^ key ^ " not found")
-    | (k, v) :: tail -> if k = key then v else find_value key tail
-  in
-  let parts = List.map split_equal (split_ampersand query) in
-  { alias = find_value "alias" parts; auth = find_value "auth" parts }
+  Logger.Sync.debug ~m:"Cli" ~f:"find_credentials_form" "Closing tshark pipes";
+  Logger.Sync.debug ~m:"Cli" ~f:"find_credentials_form" "Tshark parser process running with pid=%d" pid;
+  Unix.close write;
+  let output = Io.read_pipe_to_string read in
+  let auth = extract_http_form_value "auth" output in
+  let alias = extract_http_form_value "alias" output in
+  (match auth with
+   | Some a -> Logger.Sync.debug ~m:"Cli" ~f:"find_credentials_form" "Extracted auth: %s" a
+   | None -> Logger.Sync.warn ~m:"Cli" ~f:"find_credentials_form" "No auth found");
+  (match alias with
+   | Some a -> Logger.Sync.debug ~m:"Cli" ~f:"find_credentials_form" "Extracted alias: %s" a
+   | None -> Logger.Sync.warn ~m:"Cli" ~f:"find_credentials_form" "No alias found");
+  Unix.close read;
+  if Process.wait pid 5 == false then Process.terminate pid;
+  match auth, alias with
+  | Some al, Some au ->
+    Logger.Sync.info ~m:"Cli" ~f:"find_credentials_form" "Credentials found";
+    { alias = al; auth = au }
+  | _ ->
+    Logger.Sync.warn ~m:"Cli" ~f:"find_credentials_form" "Did not find credentials in capture. Retrying";
+    Unix.sleep 1;
+    find_credentials_form tshark_bin sslkeylog_path pcapng_path
 ;;
 
-let run sslkeylog_path pcapng_path wait_seconds =
-  Io.ensure_file_exists sslkeylog_path;
-  Io.ensure_file_exists pcapng_path;
-  let steam_pid = wait_for_steam sslkeylog_path in
-  Logger.Sync.info "Steam ready with pid=%d" steam_pid;
-  let tshark_pid = launch_tshark_listener sslkeylog_path pcapng_path in
-  Unix.sleep wait_seconds;
-  Process.terminate tshark_pid;
-  Logger.Sync.debug "Finding credentials";
-  let cookie = find_credentials_form sslkeylog_path pcapng_path in
-  Logger.Sync.info "Found cookie '%s'" cookie;
-  Logger.Sync.info "Shutting down processes";
-  Process.terminate steam_pid;
-  extract_credentials cookie
+let run steam_bin tshark_bin sslkeylog_path pcapng_path =
+  let steam_pid = None in
+  let tshark_pid = None in
+  try
+    let steam_bin = Io.resolve_symlink steam_bin in
+    let tshark_bin = Io.resolve_symlink tshark_bin in
+    Logger.Sync.debug ~m:"Cli" ~f:"run" "Resolved steam=%s tshark=%s" steam_bin tshark_bin;
+    Io.ensure_file_exists sslkeylog_path;
+    Io.ensure_file_exists pcapng_path;
+    let steam_pid = Some (wait_for_steam steam_bin sslkeylog_path) in
+    Logger.Sync.info ~m:"Cli" ~f:"run" "Steam ready with pid=%d" (match steam_pid with Some s -> s | None -> -1);
+    let tshark_pid = Some (launch_tshark_listener tshark_bin sslkeylog_path pcapng_path) in
+    Logger.Sync.info ~m:"Cli" ~f:"run" "Tshark ready with pid=%d" (match tshark_pid with Some s -> s | None -> -1);
+    Logger.Sync.debug ~m:"Cli" ~f:"run" "Finding credentials";
+    let credentials = find_credentials_form tshark_bin sslkeylog_path pcapng_path in
+    Logger.Sync.info ~m:"Cli" ~f:"run" "Found credentials for '%s': '%s'" credentials.alias credentials.auth;
+    Logger.Sync.info ~m:"Cli" ~f:"run" "Shutting down processes";
+    Process.terminate_option steam_pid;
+    Process.terminate_option tshark_pid;
+    Some credentials
+  with
+  | e ->
+    Logger.Sync.error ~m:"Cli" ~f:"run" "Fatal error %s" (Printexc.to_string e);
+    Process.terminate_option steam_pid;
+    Process.terminate_option tshark_pid;
+    None
 ;;

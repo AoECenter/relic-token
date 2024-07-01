@@ -25,13 +25,11 @@ let rec seek fd pattern buffer =
         | [] ->
           Logger.Sync.debug "Seek reached end of buffer";
           NotFound ""
-        | line :: rest ->
-          Logger.Sync.debug "Adding line";
-          if Str.string_match regex line 0 then Found line else check_lines rest
+        | line :: rest -> if Str.string_match regex line 0 then Found line else check_lines rest
       in
       match check_lines lines with
       | Found line as found ->
-        Logger.Sync.debug "Line found %s" line;
+        Logger.Sync.debug "Line match for '%s' on line '%s'" line pattern;
         found
       | NotFound partial ->
         Buffer.clear buffer;
@@ -40,5 +38,5 @@ let rec seek fd pattern buffer =
       | _ -> seek fd pattern buffer)
   | exception e ->
     Logger.Sync.error "Error while seeking: %s" (Printexc.to_string e);
-    Error "Read error"
+    Error (Printexc.to_string e)
 ;;
