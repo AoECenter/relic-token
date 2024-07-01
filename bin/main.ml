@@ -18,6 +18,6 @@ let () =
     steam_bin
     tshark_bin;
   match Relic_token_lib.Cli.run steam_bin tshark_bin sslkeylog_path pcapng_path with
-  | Some credentials -> Printf.printf "alias=%s\nauth=%s" credentials.alias credentials.auth
+  | Some credentials -> Printf.printf "alias=%s\nauth=%s\n" credentials.alias credentials.auth
   | None -> Relic_token_lib.Logger.Sync.error "Unable to aquire credentials"
 ;;

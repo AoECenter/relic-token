@@ -69,3 +69,15 @@ let setup_signal_handlers children =
     (fun signal -> Sys.set_signal signal (Sys.Signal_handle (fun _ -> handle_signal signal children)))
     signals
 ;;
+
+let pgrep process_name =
+  let in_channel = Unix.open_process_in ("pgrep " ^ process_name) in
+  try
+    let pid = input_line in_channel in
+    close_in in_channel;
+    Some (int_of_string pid)
+  with
+  | End_of_file ->
+    close_in in_channel;
+    None
+;;
