@@ -113,11 +113,13 @@ let run steam_bin tshark_bin sslkeylog_path pcapng_path =
     Logger.Sync.info ~m:"Cli" ~f:"run" "Shutting down processes";
     Process.terminate_option steam_pid;
     Process.terminate_option tshark_pid;
+    Process.terminate_option @@ Process.pgrep "AoE2DE_s.exe";
     Some credentials
   with
   | e ->
     Logger.Sync.error ~m:"Cli" ~f:"run" "Fatal error %s" (Printexc.to_string e);
     Process.terminate_option steam_pid;
     Process.terminate_option tshark_pid;
+    Process.terminate_option @@ Process.pgrep "AoE2DE_s.exe";
     None
 ;;
